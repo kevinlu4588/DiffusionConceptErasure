@@ -12,7 +12,7 @@ from diffusers import AutoencoderKL, DDPMScheduler
 from PIL import Image
 
 # ---- Import model and dataset wrapper ----
-from create_latent_classifier import LatentClassifierT, TimestepEmbedder, BinDataset
+from create_latent_classifier import LatentClassifierT, BinDataset
 
 # ============================================================
 # 1️⃣ Config
@@ -24,6 +24,9 @@ save_path = "./latent_classifier_airliner.pt"
 image_size = 512
 batch_size = 8
 
+concept = 'airliner'
+save_dir = f"./eval_results/{concept}/"
+os.makedirs(save_dir, exist_ok=True)
 # ============================================================
 # 2️⃣ Load dataset + dataloader
 # ============================================================
@@ -46,8 +49,9 @@ test_dl = DataLoader(BinDataset(test_ds, transform), batch_size=batch_size, shuf
 vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae").to(device).eval()
 scheduler = DDPMScheduler.from_pretrained(model_id, subfolder="scheduler")
 
-classifier = LatentClassifierT().to(device)
-classifier.load_state_dict(torch.load(save_path, map_location=device))
+classifier = LatentClassifierT(scheduler=scheduler).to(device)
+ckpt = torch.load(save_path, map_location=device, weights_only=False)
+classifier.load_state_dict(ckpt['model_state_dict'])
 classifier.eval()
 print(f"Loaded classifier weights from {save_path}")
 
@@ -98,13 +102,13 @@ with torch.no_grad():
         except ValueError:
             auc = np.nan
 
-            # --- true positive recall ---
-            # recall = TP / (TP + FN)
-            tpr = recall_score(labels_np, (preds > 0.5), pos_label=1)
-    
-            acc_list.append(acc)
-            auc_list.append(auc)
-            tpr_list.append(tpr)
+        # --- true positive recall ---
+        # recall = TP / (TP + FN)
+        tpr = recall_score(labels_np, (preds > 0.5), pos_label=1)
+
+        acc_list.append(acc)
+        auc_list.append(auc)
+        tpr_list.append(tpr)
     
     print(f"\nEvaluation complete! Peak metrics:")
     print(f"   Best accuracy: {max(acc_list):.3f}")
@@ -124,14 +128,14 @@ with torch.no_grad():
     plt.legend()
     plt.grid(True, alpha=0.3)
     
-    save_plot_path = os.path.join(args.save_dir, f"{args.concept}_performance_vs_timestep.png")
+    save_plot_path = os.path.join(save_dir, f"{concept}_performance_vs_timestep.png")
     plt.savefig(save_plot_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Saved performance plot to {save_plot_path}")
     
     # Save metrics CSV
     import pandas as pd
-    metrics_path = os.path.join(args.save_dir, f"{args.concept}_metrics.csv")
+    metrics_path = os.path.join(save_dir, f"{concept}_metrics.csv")
     metrics_df = pd.DataFrame({
         'timestep': timesteps_to_eval,
         'accuracy': acc_list,
